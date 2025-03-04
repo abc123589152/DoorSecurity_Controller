@@ -7,6 +7,7 @@ import threading
 import time
 from dbconnect_new import dbConnect_new
 app = FastAPI()
+#當下那台控制器Raspnerry Pi的IP，這裡是暫時測試用，未來會用程式自己抓取目前現在的IP
 raspberry_pi_ip = "172.16.1.195"
 app.add_middleware(
     CORSMiddleware,
@@ -17,6 +18,7 @@ app.add_middleware(
 )
 class GPIOMonitor:
     def __init__(self, pin_numbers):
+        #存放初始話過後的GPIO點位
         self.pins = {}
         self.connections = set()
         self.running = True
@@ -33,10 +35,10 @@ class GPIOMonitor:
         self.monitor_thread = threading.Thread(target=self.monitor_gpio)
         self.monitor_thread.daemon = True
         self.monitor_thread.start()
+    #這裡用來取得當下的門位狀態
     def get_current_door_states(self):
         """獲取所有門的當前狀態"""
         current_states = []
-        
         for pin, button in self.pins.items():
             current_state = button.is_pressed
             # 獲取門的信息
@@ -70,20 +72,24 @@ class GPIOMonitor:
                     self.previous_states[pin] = current_state
                     if get_door_name!=[]:
                         get_door_controller = dbConnect_new("SELECT *FROM door_status where doorname = %s",(get_door_name[0]['door'],))
+                        #這裡是用來判斷門位點是否為打開的
                         state_status = 'closed' if current_state else 'open'
                         if state_status == "closed":
                             print(f"門號:{get_door_name[0]['door']} 關閉")
                         elif(state_status == "open"):
+                            #讀取該門禁設定的wiegand編號權限檔案，1為有權限,0為沒有權限
                             with open("./permition/checkwiegand1permition.conf","r") as readpermition:
                                 if (readpermition.read().strip() == "0"):
                                     state_status = "ForceOpen"
                                 else:
                                     state_status = "open"
                             print(f"門號:{get_door_name[0]['door']} {state_status}")
+                        #建立Websocket需要傳送的訊息，這個訊息要傳送到前端網頁進行顯示，內容是開關門訊息
                         state_message = {
+                            #取得門禁控制欄位資料庫裡這個門號的id，這裡會對應到前端網頁顯示門狀態的html欄位id
                             'door_status_id':get_door_controller[0]['id'],
                             'pin': pin,
-                            'state': "閉合(Close)" if current_state else "開路(Open)",  # 按下為閉合
+                            'state': "閉合(Close)" if current_state else "開路(Open)",  # 按下為閉合也就是關閉，反之則是打開
                             'states':state_status,
                             'value': current_state
                         }
@@ -103,6 +109,7 @@ class GPIOMonitor:
                         asyncio.run(self.broadcast_update(state_message))
             # 降低 CPU 使用率
             time.sleep(0.5)  # 500ms 延遲
+    #將欲傳送到websocket client端訊息進行廣播
     async def broadcast_update(self, message):
         """向所有連接的客戶端廣播更新"""
         dead_connections = set()
@@ -149,6 +156,7 @@ class GPIOMonitor:
 
 # 創建 GPIO 監控器實例
 monitor = GPIOMonitor([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+#建立websocket的連接名稱
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await monitor.register(websocket)
