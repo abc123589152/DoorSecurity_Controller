@@ -51,7 +51,6 @@ class GPIOMonitor:
                         with open("./permition/checkwiegand1permition.conf", "r") as readpermition:
                             if readpermition.read().strip() == "0":
                                 state_status = "ForceOpen"
-                    
                     state_info = {
                         'door_status_id': get_door_controller[0]['id'],
                         'states': state_status
