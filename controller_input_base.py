@@ -24,7 +24,6 @@ class GPIOMonitor:
         self.running = True
         self.previous_states = {}
         self.door_sensor_dict = {}
-        
         # 初始化 GPIO，使用 Button，
         for pin in pin_numbers:
             button = Button(pin, pull_up=True,bounce_time=0.1)
