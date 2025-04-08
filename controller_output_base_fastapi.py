@@ -166,6 +166,9 @@ async def gpio_status(port: int):
             status_code=400,
             detail="Invalid GPIO port"
         )
+@app.get("/api/output/status")
+async def get_raspberry_pi_status():
+    return {"status":"ok"}
 
 if __name__ == "__main__":
     import uvicorn
