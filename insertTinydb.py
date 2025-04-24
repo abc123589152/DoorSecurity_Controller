@@ -49,3 +49,4 @@ if __name__ == "__main__":
     insertDatatoTinydb("controllerInput")
     #controllerOutput
     insertDatatoTinydb("controllerOutput")
+    insertDatatoTinydb("door_status")

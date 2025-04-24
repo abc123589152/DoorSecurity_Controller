@@ -1,0 +1,7 @@
+{
+    "eventName": "D892_開門過久",
+    "eventClass": "HaltOpen",
+    "eventCause": "systemAction",
+    "timeToEvent": "2025-04-10 08:58:02",
+    "eventStatus": "unconfirmed"
+}

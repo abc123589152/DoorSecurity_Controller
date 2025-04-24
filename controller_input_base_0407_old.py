@@ -23,7 +23,7 @@ class GPIOMonitor:
         self.running = True
         self.previous_states = {}
         self.door_sensor_dict = {}
-        
+        self.http_client = httpx.Client(timeout=2.0)
         # 初始化 GPIO，使用 Button，
         for pin in pin_numbers:
             button = Button(pin, pull_up=True,bounce_time=0.1)
@@ -88,13 +88,12 @@ class GPIOMonitor:
                         "eventName": get_event[0]['eventName']
                     }
                     try:
-                        response = httpx.get(check_controller_output_status)
+                        response = self.http_client.get(check_controller_output_status)
                         # 檢查是否連接成功
                         if response.status_code == 200:
                             print(f"連接成功！API回應: {response.text} ,可以重新進行Event API 派送")
-                            with httpx.Client() as client:
-                                response = client.post(eventAction_url, json=dict_output)
-                                print(response.json())
+                            response = self.http_client.post(eventAction_url, json=dict_output)
+                            print(response.json())
                         else:
                             print(f"連接失敗，狀態碼: {response.status_code}")
                     except httpx.ConnectError:

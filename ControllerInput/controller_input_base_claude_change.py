@@ -73,7 +73,7 @@ class GPIOMonitor(FileSystemEventHandler):
         self.cache_door_settings()
     def on_modified(self, event):
         if event.src_path.endswith('door_control_system.json'):
-            print("檢測到文件變更，重新加載數據庫")
+            print("檢測到文件變更，重新加載資料庫")
             self.db.close()
             self.db = TinyDB('door_control_system.json')
             self.doorsetting_table = self.db.table("doorsetting")
@@ -296,60 +296,7 @@ class GPIOMonitor(FileSystemEventHandler):
             thread_task[controller].start()
         # for controller_output in listoutputpin:
         #     self.send_event_action(controller_output, get_event[0])
-    def unsync_data(self, file_path, data):
-        # 使用線程鎖來確保一次只有一個線程可以訪問文件
-        lock = threading.Lock()
-        with lock:
-            try:
-                # 檢查文件是否存在或為空
-                if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
-                    with open(file_path, "w", encoding="utf-8") as file:
-                        json.dump([], file)
-                
-                # 讀取文件內容
-                try:
-                    with open(file_path, "r", encoding="utf-8") as file:
-                        content = file.read().strip()
-                        if content:
-                            events = json.loads(content)
-                        else:
-                            events = []
-                except json.JSONDecodeError:
-                    # 如果 JSON 解析失敗，重置為空列表
-                    events = []
-                
-                # 確保 events 是列表
-                if not isinstance(events, list):
-                    events = [events] if events else []
-                
-                # 添加新數據
-                events.append(data)
-                
-                # 寫回文件
-                with open(file_path, "w", encoding="utf-8") as file:
-                    json.dump(events, file, ensure_ascii=False, indent=4)
-                    
-                print(f"已添加新事件，目前尚未同步的資料共有 {len(events)} 條記錄")
-            
-            except Exception as e:
-                print(f"處理未同步數據錯誤: {e}")
-                # 確保即使出錯也能寫入數據
-                try:
-                    with open(file_path, "w", encoding="utf-8") as file:
-                        json.dump([data], file, ensure_ascii=False, indent=4)
-                    print("已重設並添加新事件")
-                except Exception as write_error:
-                    print(f"重置文件錯誤: {write_error}")
-    # def unsync_data(self,file_path,data):
-    #     if not os.path.exists(file_path) or os.path.getsize(file_path) == 0:
-    #             with open(file_path, "w", encoding="utf-8") as file:
-    #                 json.dump([], file)
-    #     with open(file_path, "r", encoding="utf-8") as file:
-    #         events = json.load(file)
-    #     events.append(data)
-    #     with open(file_path, "w", encoding="utf-8") as file:
-    #         json.dump(events, file, ensure_ascii=False, indent=4)
-    #     print(f"已添加新事件，目前尚未同步的資料共有 {len(events)} 條記錄")
+    
     #會把controllerOutput的Port從非作用中改為作用中
     def update_outputPort_status(self,outputPort,controller,check):
         for output in outputPort:
@@ -410,7 +357,6 @@ class GPIOMonitor(FileSystemEventHandler):
     def get_current_door_states(self):
         """獲取所有門的當前狀態"""
         current_states = []
-        
         for pin, door_info in self.door_settings.items():
             if 'door_status' in door_info:
                 current_state = self.previous_states.get(pin)
