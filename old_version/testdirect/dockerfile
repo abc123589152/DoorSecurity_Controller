@@ -1,0 +1,16 @@
+FROM python:3.11.5
+
+# 設定非互動式環境變數
+ENV DEBIAN_FRONTEND=noninteractive
+
+# 更新系統並安裝編譯 Python 所需的依賴
+RUN apt-get update && apt-get install -y \
+    libsqlcipher-dev \
+    wget \
+    nano \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+RUN pip install pysqlcipher3
+RUN pip install pandas
+
+CMD ["tail", "-f", "/dev/null"]
