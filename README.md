@@ -12,3 +12,10 @@ ControllerInput所會用到的是Input點位的偵測，目前是測試用版本
 再來有一個重要的部份是樹梅派的IP，我這邊取得樹梅派的IP是自動抓取網卡eth0的ipaddress如果使用的是wifi的話可以將我的function裡面的eth0改為wlan0，這樣就會是抓取wlan0的ipaddress了。
 ![截圖 2025-04-29 下午4 01 04](https://github.com/user-attachments/assets/ba8f4143-db05-4bba-83fc-525ac5aa2603)
 以上是大概的說明。
+總結一下會使用到的資料夾是
+1.ControllerInput
+2.ControllerOutput
+3.db_connect
+4.mysql_config
+5.permition
+我後續會把python 套件會寫入到requirmentes.txt裡面，在執行程式前可以先進行pip install -r requirements.txt
