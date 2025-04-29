@@ -1,0 +1,9 @@
+fastapi==0.115.8
+uvicorn==0.34.0
+httpx==0.26.0
+tinydb==4.8.2
+watchdog==2.1.6
+gpiozero==2.0.1
+starlette==0.45.3
+pydantic==2.5.3
+pydantic_core==2.14.6
