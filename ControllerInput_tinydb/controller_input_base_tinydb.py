@@ -12,9 +12,7 @@ from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 import socket
 from dotenv import load_dotenv
-import subprocess
-import re
-import sys,os
+import sys,os,subprocess,re
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from db_connect.dbconnect_new import dbConnect_new
 app = FastAPI()
@@ -39,6 +37,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+#定義tinyDB連接的資料庫，使用的是產生同步好的json檔案
+db = TinyDB("door_control_system.json")
+unsyncdb = TinyDB("unsync_data.json")
 # 全局設置事件循環
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
@@ -75,8 +76,7 @@ async def check_port_async(host, port, timeout=1):
         except (asyncio.TimeoutError, ConnectionRefusedError, OSError):
             return False
 class GPIOMonitor(FileSystemEventHandler):
-    #def __init__(self, pin_numbers,db_instance,unsync_db_instance):
-    def __init__(self, pin_numbers):
+    def __init__(self, pin_numbers,db_instance,unsync_db_instance):
         self.pins = {}
         self.connections = set()
         self.running = True
@@ -84,7 +84,23 @@ class GPIOMonitor(FileSystemEventHandler):
         self.door_sensor_dict = {}
         self.door_threads = {}
         self.http_client = httpx.Client(timeout=2.0)
-        self.stop_event = threading.Event()
+        self.unsyncdb = unsync_db_instance
+        #未同步的事件狀態
+        self.unsync_event_table = self.unsyncdb.table("unsync_event_table")
+        #未同步的ControllerOutput狀態
+        self.unsync_event_output_table = self.unsyncdb.table("unsync_event_output_table")
+        #未同步的eventLog狀態
+        self.unsync_event_log_table = self.unsyncdb.table("unsync_event_log_table")
+        #==============
+        self.db = db_instance
+        self.doorsetting_table = self.db.table("doorsetting")
+        self.eventAction_table = self.db.table("eventAction")
+        self.controllerInput_table = self.db.table("controllerInput")
+        self.controllerOutput_table = self.db.table("controllerOutput")
+        self.door_status_table = self.db.table("door_status")
+        self.query_table = Query()
+
+
         # 初始化 GPIO，使用 Button，
         for pin in pin_numbers:
             button = Button(pin, pull_up=True,bounce_time=0.1)
@@ -93,13 +109,12 @@ class GPIOMonitor(FileSystemEventHandler):
             # 設置回調函數來處理狀態變化
             button.when_pressed = lambda p=pin: self.handle_state_change(p, True)
             button.when_released = lambda p=pin: self.handle_state_change(p, False)
+        # # 啟動監控線程
+        # self.monitor_thread = threading.Thread(target=self.monitor_gpio)
+        # self.monitor_thread.daemon = True
+        # self.monitor_thread.start()
     # 預先獲取門的設置信息，以減少後續查詢
         self.cache_door_settings()
-    def syncsql(self,sec):
-        while True:
-            print("Mysql定時同步成功")
-            self.cache_door_settings()
-            time.sleep(sec)
     #用來處理input的開啟與關閉事件
     def handle_state_change(self, pin, is_pressed):
         """處理GPIO狀態變化的回調函數"""
@@ -122,7 +137,7 @@ class GPIOMonitor(FileSystemEventHandler):
             #檢查是否還有觸發開門過久，在開門的時候檢測
             # 檢查強迫開門
             if state_status == "open":
-                with open("../permition/checkwiegand1permition.conf", "r") as readpermition:
+                with open("./permition/checkwiegand1permition.conf", "r") as readpermition:
                     if readpermition.read().strip() == "0":
                         state_status = "ForceOpen"
                     else:
@@ -195,7 +210,7 @@ class GPIOMonitor(FileSystemEventHandler):
             wiegand_halt_open_check[pin] = False
             # 檢查強迫開門
             if state_status == "open":
-                with open("../permition/checkwiegand1permition.conf", "r") as readpermition:
+                with open("./permition/checkwiegand1permition.conf", "r") as readpermition:
                     if readpermition.read().strip() == "0":
                         state_status = "ForceOpen"
                     else:
@@ -211,7 +226,6 @@ class GPIOMonitor(FileSystemEventHandler):
                             daemon=True
                         )
                         self.door_threads[door_name].start()
-            #如果開門過久產生就會將訊息改為開門過久傳送出去
             if(wiegand_halt_open_check[pin]):
                 if (is_pressed):
                     states = "閉合(Close)"
@@ -272,18 +286,17 @@ class GPIOMonitor(FileSystemEventHandler):
         """預先緩存門的設置信息"""
         self.door_settings = {}
         for pin in self.pins.keys():
-            #door_info= self.doorsetting_table.search((self.query_table.door_sensor == str(pin))&(self.query_table.control == raspberry_pi_ip)) 
-            door_info = dbConnect_new("SELECT * FROM doorsetting WHERE door_sensor = %s and control = %s",True, (pin, raspberry_pi_ip))
-            #print(door_info)
+            door_info= self.doorsetting_table.search((self.query_table.door_sensor == str(pin))&(self.query_table.control == raspberry_pi_ip)) 
+            #door_info = dbConnect_new("SELECT * FROM doorsetting WHERE door_sensor = %s and control = %s", (pin, raspberry_pi_ip))
+            print(door_info)
             if door_info:
                 wiegand_halt_open_check[pin] = False
                 self.door_settings[pin] = door_info[0]
                 # 預取door_status表中的信息
-                #door_status = self.door_status_table.search(self.query_table.doorname == door_info[0]['door'])
-                door_status = dbConnect_new("SELECT * FROM door_status WHERE doorname = %s",True, (door_info[0]['door'],))
+                door_status = self.door_status_table.search(self.query_table.doorname == door_info[0]['door'])
+                #door_status = dbConnect_new("SELECT * FROM door_status WHERE doorname = %s", (door_info[0]['door'],))
                 if door_status:
                     self.door_settings[pin]['door_status'] = door_status[0]
-
     def get_current_door_states(self):
         """獲取所有門的當前狀態"""
         current_states = []
@@ -294,7 +307,7 @@ class GPIOMonitor(FileSystemEventHandler):
                 
                 # 檢查是否為強迫開門
                 if state_status == "open":
-                    with open("../permition/checkwiegand1permition.conf", "r") as readpermition:
+                    with open("./permition/checkwiegand1permition.conf", "r") as readpermition:
                         if readpermition.read().strip() == "0":
                             state_status = "ForceOpen"
                         else:
@@ -321,13 +334,10 @@ class GPIOMonitor(FileSystemEventHandler):
             time.sleep(1)  # 每 1 秒檢查一次
         if(openlimit==int(elapsed_time)):
             print("警報！門開啟過久！")
-            #get_event = self.eventAction_table.search((self.query_table.doorName == doorname)&(self.query_table.eventClass == "HaltOpen"))
-            get_event = dbConnect_new("Select *from eventAction where doorname = %s and eventClass = %s",True,(doorname,'HaltOpen'))
+            get_event = self.eventAction_table.search((self.query_table.doorName == doorname)&(self.query_table.eventClass == "HaltOpen"))
             if not get_event:
                 print(f"{doorname} not have haltopen event so do noting!")
-                #設定該port為開門過久狀態，在前端網頁刷新的時候可以保持此狀態使用
                 wiegand_halt_open_check[pin] = True
-                #定義websocket 推播到前端網頁的訊息
                 state_message = {
                     'door_status_id': door_info.get('door_status', {}).get('id', 0),
                     'state': "開門過久",
@@ -336,9 +346,7 @@ class GPIOMonitor(FileSystemEventHandler):
                 # 將廣播任務提交給事件循環
                 asyncio.run_coroutine_threadsafe(self.broadcast_update(state_message), loop)
             else:
-                #設定該port為開門過久狀態，在前端網頁刷新的時候可以保持此狀態使用
                 wiegand_halt_open_check[pin] = True
-                #定義websocket 推播到前端網頁的訊息
                 state_message = {
                     'door_status_id': door_info.get('door_status', {}).get('id', 0),
                     'state': "開門過久",
@@ -357,35 +365,34 @@ class GPIOMonitor(FileSystemEventHandler):
                 else:
                     #如果連結DoorSecurity database異常就會將資訊先暫存到未同步的本地資料庫進行儲存
                     print("No connect mysql server!")
-                    # getnowtime = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                    # new_unsync_event = {
-                    #     "eventName": get_event[0]['eventName'],
-                    #     "eventClass": "HaltOpen",
-                    #     "eventCause": "systemAction",
-                    #     "timeToEvent": getnowtime,
-                    #     "eventStatus": "unconfirmed"   
-                    # }
-                    # new_event_action_data = {
-                    #     "eventName":get_event[0]['eventName'],
-                    #     "status": "active"
-                    # }
-                    # Event = Query()
-                    # self.unsync_event_log_table.upsert(
-                    #     new_unsync_event,
-                    #     (Event.eventName == new_unsync_event["eventName"])
-                    # )
-                    # self.unsync_event_table.upsert(
-                    #     new_event_action_data,
-                    #     (Event.eventName == new_unsync_event["eventName"])
-                    # )
+                    getnowtime = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+                    new_unsync_event = {
+                        "eventName": get_event[0]['eventName'],
+                        "eventClass": "HaltOpen",
+                        "eventCause": "systemAction",
+                        "timeToEvent": getnowtime,
+                        "eventStatus": "unconfirmed"   
+                    }
+                    new_event_action_data = {
+                        "eventName":get_event[0]['eventName'],
+                        "status": "active"
+                    }
+                    Event = Query()
+                    self.unsync_event_log_table.upsert(
+                        new_unsync_event,
+                        (Event.eventName == new_unsync_event["eventName"])
+                    )
+                    self.unsync_event_table.upsert(
+                        new_event_action_data,
+                        (Event.eventName == new_unsync_event["eventName"])
+                    )
                 output_names = get_event[0]['outputPort'].split(",")
                 # 用於儲存按 controller 分組的結果
                 controller_groups = {}
                 # 遍歷每個 outputName
                 for output in output_names:
                     # 查詢符合 outputName 的記錄
-                    output_results = dbConnect_new("Select *from controllerOutput where outputName = %s",True,(output,))
-                    #output_results = self.controllerOutput_table.search(self.query_table.outputName == output)
+                    output_results = self.controllerOutput_table.search(self.query_table.outputName == output)
                     # 遍歷查詢結果
                     for item in output_results:
                         controller = item['controller']
@@ -406,7 +413,7 @@ class GPIOMonitor(FileSystemEventHandler):
                     try:
                         response = check_port_with_socket(mysql_ip,13306)
                         if response:
-                            print(f"連接成功！API回應: {response} ,可以重新進行Event API 派送")
+                            print(f"連接成功！API回應: {response.text} ,可以重新進行Event API 派送")
                             with httpx.Client() as client:
                                 response = client.post(eventAction_url, json=dict_output)
                                 print(response.json())
@@ -464,8 +471,7 @@ def start_event_loop():
 event_loop_thread = threading.Thread(target=start_event_loop, daemon=True)
 event_loop_thread.start()
 # 創建 GPIO 監控器實例
-#monitor = GPIOMonitor([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],db,unsyncdb)
-monitor = GPIOMonitor([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+monitor = GPIOMonitor([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],db,unsyncdb)
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await monitor.register(websocket)
@@ -481,16 +487,12 @@ async def get_current_states():
 if __name__ == "__main__":
     try:
         print("Starting GPIO monitor server...")
-        t = threading.Thread(target=monitor.syncsql(10))
-        t.start()
         uvicorn.run(app, host="0.0.0.0", port=8000)
     except KeyboardInterrupt:
         observer.stop()
     finally:
         print("Cleaning up...")
         monitor.cleanup()
-        stop_event = threading.Event()
-        stop_event.set()
         # 關閉事件循環
         loop.call_soon_threadsafe(loop.stop)
         event_loop_thread.join(timeout=1.0)
