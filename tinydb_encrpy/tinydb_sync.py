@@ -15,6 +15,9 @@ from cryptography.fernet import InvalidToken
 from tinydb.queries import Query
 import threading
 import time
+from watchdog.observers import Observer
+from watchdog.events import FileSystemEventHandler
+import subprocess,re
 # 全局字典，用於追踪每個門鎖的計時器
 door_timers = {}
 app = FastAPI()
@@ -27,6 +30,62 @@ mysql_config = {
     'port':"13306",
     'database':'DoorSecurity'     # 修改為你的數據庫名稱
 }
+def get_eth0_ip(interface):
+    try:
+        output = subprocess.check_output("ip addr show "+interface, shell=True, text=True)
+        match = re.search(r'inet (\d+\.\d+\.\d+\.\d+)', output)
+        if match:
+            return match.group(1)
+        else:
+            return None
+    except subprocess.CalledProcessError:
+        return None
+raspberry_pi_ip = get_eth0_ip("wlan0")
+# 創建一個檔案系統事件處理類
+class TinyDBFileHandler(FileSystemEventHandler):
+    def __init__(self, db_instance, db_path):
+        self.db = db_instance
+        self.db_path = db_path
+        self.last_modified = os.path.getmtime(db_path) if os.path.exists(db_path) else 0
+        self.init_create_wiegand()
+        print(f"初始化監控 TinyDB 檔案: {db_path}")
+    
+    def on_modified(self, event):
+        # 只關注我們的資料庫檔案
+        if event.src_path == self.db_path:
+            current_modified = os.path.getmtime(self.db_path)
+            
+            # 避免重複處理同一事件
+            if current_modified > self.last_modified:
+                self.last_modified = current_modified
+                print(f"檔案已被修改: {event.src_path}")
+                print("重新載入資料庫...")
+                
+                # 重新載入資料庫
+                # 注意：由於您的 EncryptedTinyDB 是加密的，需要特殊處理
+                try:
+                    # 這裡假設 db 有 _load_db 方法（從您的程式碼中看到有此方法）
+                    self.db._load_db()
+
+                    print("資料庫重新載入成功")
+                except Exception as e:
+                    print(f"重新載入資料庫時發生錯誤: {e}")
+    def init_create_wiegand(self):
+        if not os.path.exists("./wiegand_config"):
+            os.mkdir("./wiegand_config")
+        doorsetting_table = self.db.table("doorsetting")
+        wiegand_list = ['Wiegand1','Wiegand2','Wiegand3']
+        user = Query()
+        for wiegand in wiegand_list:
+            with open(f"./wiegand_config/{wiegand}.conf","w") as wiegand_write:
+                get_wiegand_doorname = doorsetting_table.get((user.wiegand == wiegand) & (user.control == raspberry_pi_ip))
+                if get_wiegand_doorname!=None:
+                    wiegand_write.write(get_wiegand_doorname['door'])
+    def wiegand_config(self):
+        wiegand_list = ['wiegand1','wiegand2','wiegand3']
+        if not os.path.exists("./wiegand_config"):
+                os.mkdir("./wiegand_config")
+        
 class EncryptedTinyDB:
     def __init__(self, path, key=None):
         """
@@ -271,7 +330,11 @@ def sync_to_tinydb(db):
         tables = {
             'doorsetting': db.table('doorsetting'),
             'doorgroup': db.table('doorgroup'),
-            'employ': db.table('employ')
+            'employ': db.table('employ'),
+            'controllerInput':db.table('controllerInput'),
+            'controllerOutput':db.table('controllerOutput'),
+            'door_status':db.table('door_status'),
+            'eventAction':db.table('eventAction')
         }
         
         for table_name, tinydb_table in tables.items():
@@ -338,10 +401,29 @@ db = EncryptedTinyDB(db_path, key)
 # @app.get("/api/create/table/{tablename}")
 # def create_table(tablename):
 #     return insert_table(tablename)
+# 在主程式中設置監控
+def setup_db_watchdog(db_instance, db_path):
+    """設置資料庫檔案監控"""
+    event_handler = TinyDBFileHandler(db_instance, db_path)
+    observer = Observer()
+    observer.schedule(event_handler, path=os.path.dirname(db_path), recursive=False)
+    observer.start()
+    print(f"已啟動對 {db_path} 的監控")
+    
+    # 返回觀察者以便後續可能需要的停止操作
+    return observer
 @app.get("/api/get/table")
 def get_table():
     a = db.tables()
     return {"tables":a}
+@app.get("/api/{tablename}/update")
+def table_update(tablename):
+    user = Query()
+    get_table = db.table(tablename)
+    get_table.update({"door_lock":"20"},user.door == "D566")
+    db._save_db()
+    return {"message":f"Update {tablename} successful."}
+    
 @app.get("/api/mysql/sync")
 def sync_mysql():
     sync_to_tinydb(db)
@@ -354,47 +436,62 @@ def data(tablename: str):
 def check_door_exists(door_string, door_code):
     # 添加逗號使檢查更精確
     return f",{door_code}," in f",{door_string},"
-def reset_door_lock(door_lock_port,resettime):
-    while resettime!=0:
-        resettime-=1
-        time.sleep(1)
+def reset_door_lock(door_lock_port, resettime):
+    """執行關閉門鎖的函數，由計時器調用"""
     try:
         with httpx.Client() as api:
             response = api.post(f"http://localhost:5020/gpio/{door_lock_port}/off")
             print(response.json())
-            return {"message":f"door port {door_lock_port} status change to off."}
+            return {"message": f"door port {door_lock_port} status change to off."}
     except Exception as e:
-        return {"error_message":f"API has problem see the error message {e}"}
+        return {"error_message": f"API has problem see the error message {e}"}
 @app.get("/api/check/permition/{doornumber}/{cardnumber}")
-def check_permition(cardnumber,doornumber):
+def check_permition(cardnumber, doornumber):
     check_count = 0
     User = Query()
     employ_table = db.table("employ")
     doorgroup_table = db.table("doorgroup")
     doorsetting_table = db.table("doorsetting")
+    
+    # 檢查是否有此卡號
     check = employ_table.get(User.cardnumber == str(cardnumber))
-    #檢查是否有此卡號
     if check:
         for groupname in check["doorgroup"].split(","):
             check_permition = doorgroup_table.get(User.groupname == groupname)
             if check_permition:
-                checkdoornameexist = check_door_exists(check_permition['doorname'],doornumber)
+                checkdoornameexist = check_door_exists(check_permition['doorname'], doornumber)
                 if checkdoornameexist:
-                    check_count+=1
+                    check_count += 1
+    
     get_doorname_status = doorsetting_table.get(User.door == doornumber)
-    door = {}
-    if check_count>0:
+    
+    if check_count > 0:
         try:
             with httpx.Client() as client:
+                # 無論如何都發送開門請求
                 response = client.post(f"http://localhost:5020/gpio/{get_doorname_status['door_lock']}/on")
                 print(response.json())
-                t = threading.Thread(target=reset_door_lock,args=(get_doorname_status['door_lock'],int(get_doorname_status["reset_time"])))
+                
+                # 獲取門鎖和重置時間資訊
+                door_lock_port = get_doorname_status['door_lock']
+                reset_time = int(get_doorname_status["reset_time"])
+                
+                # 檢查是否已存在該門鎖的計時器
+                if door_lock_port in door_timers:
+                    # 取消現有計時器
+                    current_timer = door_timers[door_lock_port]
+                    current_timer.cancel()
+                
+                # 創建新的計時器
+                t = threading.Timer(reset_time, reset_door_lock, args=(door_lock_port, 0))
+                door_timers[door_lock_port] = t
                 t.start()
-                return {"message":f"{cardnumber} has {doornumber} permition."}
+                
+                return {"message": f"{cardnumber} has {doornumber} permition."}
         except Exception as e:
-            return {"error_message":f"API has problem see the error message {e}"}
+            return {"error_message": f"API has problem see the error message {e}"}
     else:
-        return{"message":f"{doornumber} access deny."}
+        return {"message": f"{doornumber} access deny."}
 
 @app.get("/api/get/doorsetting")
 def get_doorsetting():
@@ -447,4 +544,14 @@ def test_insert_doorsetting():
     except Exception as e:
         return {"status": "error", "message": str(e)}
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # 設置資料庫監控
+    observer = setup_db_watchdog(db, db_path)
+    try:
+        # 啟動 FastAPI 服務
+        uvicorn.run(app, host="0.0.0.0", port=8000)
+    finally:
+        # 停止監控
+        observer.stop()
+        observer.join()
+        # 關閉資料庫
+        db.close()

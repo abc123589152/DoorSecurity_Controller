@@ -21,12 +21,15 @@ int main(int argc, char *argv[]) {
     if(curl) {
         // 设置API的URL
         // 默认使用localhost，如果命令行提供参数则使用参数
-        const char *url = argc > 1 ? argv[1] : "http://localhost:8000/api/output/status";
-        
-        printf("正在请求: %s\n", url);
+        const char *url = argc > 1 ? argv[1] : "http://localhost:8000/api/check/permition";
+        char cardnumber[100] = "2291941972";
+        char doorname[100] = "D566";
+        char full_url[300];
+        snprintf(full_url, sizeof(full_url), "%s%s/%s", url, doorname, cardnumber);
+        printf("正在请求: %s\n", full_url);
         
         // 设置URL
-        curl_easy_setopt(curl, CURLOPT_URL, url);
+        curl_easy_setopt(curl, CURLOPT_URL, full_url);
         
         // 设置回调函数
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
@@ -42,7 +45,6 @@ int main(int argc, char *argv[]) {
         long http_code = 0;
         curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &http_code);
         printf("\nHTTP状态码: %ld\n", http_code);
-        
         // 清理
         curl_easy_cleanup(curl);
     }

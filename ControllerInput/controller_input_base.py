@@ -17,6 +17,7 @@ import re
 import sys,os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from db_connect.dbconnect_new import dbConnect_new
+import tinydb_encrpy.tinydb_sync
 app = FastAPI()
 wiegand_halt_open_check = {}
 def get_eth0_ip(interface):
