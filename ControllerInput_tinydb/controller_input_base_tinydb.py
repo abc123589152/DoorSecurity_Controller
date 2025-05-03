@@ -15,7 +15,11 @@ from dotenv import load_dotenv
 import sys,os,subprocess,re
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from db_connect.dbconnect_new import dbConnect_new
+import tinydb_encrpy.tinydb_sync_no_api as tinycon
 app = FastAPI()
+db_path = "secure_data/encrypted_db.json"
+key_path = "secure_data/db.key"
+key = tinycon.get_encryption_key(key_path)
 wiegand_halt_open_check = {}
 def get_eth0_ip(interface):
     try:
@@ -38,8 +42,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 #定義tinyDB連接的資料庫，使用的是產生同步好的json檔案
-db = TinyDB("door_control_system.json")
-unsyncdb = TinyDB("unsync_data.json")
+#db = TinyDB("door_control_system.json")
+#unsyncdb = TinyDB("unsync_data.json")
 # 全局設置事件循環
 loop = asyncio.new_event_loop()
 asyncio.set_event_loop(loop)
@@ -76,7 +80,8 @@ async def check_port_async(host, port, timeout=1):
         except (asyncio.TimeoutError, ConnectionRefusedError, OSError):
             return False
 class GPIOMonitor(FileSystemEventHandler):
-    def __init__(self, pin_numbers,db_instance,unsync_db_instance):
+    #def __init__(self, pin_numbers,db_instance,unsync_db_instance):
+    def __init__(self, pin_numbers):
         self.pins = {}
         self.connections = set()
         self.running = True
@@ -84,15 +89,16 @@ class GPIOMonitor(FileSystemEventHandler):
         self.door_sensor_dict = {}
         self.door_threads = {}
         self.http_client = httpx.Client(timeout=2.0)
-        self.unsyncdb = unsync_db_instance
-        #未同步的事件狀態
-        self.unsync_event_table = self.unsyncdb.table("unsync_event_table")
-        #未同步的ControllerOutput狀態
-        self.unsync_event_output_table = self.unsyncdb.table("unsync_event_output_table")
-        #未同步的eventLog狀態
-        self.unsync_event_log_table = self.unsyncdb.table("unsync_event_log_table")
-        #==============
-        self.db = db_instance
+        self.db = tinycon.EncryptedTinyDB(db_path,key)
+        # self.unsyncdb = unsync_db_instance
+        # #未同步的事件狀態
+        # self.unsync_event_table = self.unsyncdb.table("unsync_event_table")
+        # #未同步的ControllerOutput狀態
+        # self.unsync_event_output_table = self.unsyncdb.table("unsync_event_output_table")
+        # #未同步的eventLog狀態
+        # self.unsync_event_log_table = self.unsyncdb.table("unsync_event_log_table")
+        # #==============
+        # self.db = db_instance
         self.doorsetting_table = self.db.table("doorsetting")
         self.eventAction_table = self.db.table("eventAction")
         self.controllerInput_table = self.db.table("controllerInput")
@@ -269,18 +275,18 @@ class GPIOMonitor(FileSystemEventHandler):
         # 將廣播任務提交給事件循環並且將目前門的狀態藉由broadcast_update來去發送到WebSocket Client前端網頁
         asyncio.run_coroutine_threadsafe(self.broadcast_update(state_message), loop)
     #檢測到TinyDB有異動就重新加載資料庫
-    def on_modified(self, event):
-        if event.src_path.endswith('door_control_system.json'):
-            print("檢測到文件變更，重新加載資料庫")
-            self.db.close()
-            self.db = TinyDB('door_control_system.json')
-            self.doorsetting_table = self.db.table("doorsetting")
-            self.eventAction_table = self.db.table("eventAction")
-            self.controllerInput_table = self.db.table("controllerInput")
-            self.controllerOutput_table = self.db.table("controllerOutput")
-            self.door_status_table = self.db.table("door_status")
-            self.query_table = Query()
-            self.cache_door_settings()
+    # def on_modified(self, event):
+    #     if event.src_path.endswith('door_control_system.json'):
+    #         print("檢測到文件變更，重新加載資料庫")
+    #         self.db.close()
+    #         self.db = TinyDB('door_control_system.json')
+    #         self.doorsetting_table = self.db.table("doorsetting")
+    #         self.eventAction_table = self.db.table("eventAction")
+    #         self.controllerInput_table = self.db.table("controllerInput")
+    #         self.controllerOutput_table = self.db.table("controllerOutput")
+    #         self.door_status_table = self.db.table("door_status")
+    #         self.query_table = Query()
+    #         self.cache_door_settings()
     #先預存門的設定
     def cache_door_settings(self):
         """預先緩存門的設置信息"""
@@ -377,15 +383,15 @@ class GPIOMonitor(FileSystemEventHandler):
                         "eventName":get_event[0]['eventName'],
                         "status": "active"
                     }
-                    Event = Query()
-                    self.unsync_event_log_table.upsert(
-                        new_unsync_event,
-                        (Event.eventName == new_unsync_event["eventName"])
-                    )
-                    self.unsync_event_table.upsert(
-                        new_event_action_data,
-                        (Event.eventName == new_unsync_event["eventName"])
-                    )
+                    # Event = Query()
+                    # self.unsync_event_log_table.upsert(
+                    #     new_unsync_event,
+                    #     (Event.eventName == new_unsync_event["eventName"])
+                    # )
+                    # self.unsync_event_table.upsert(
+                    #     new_event_action_data,
+                    #     (Event.eventName == new_unsync_event["eventName"])
+                    # )
                 output_names = get_event[0]['outputPort'].split(",")
                 # 用於儲存按 controller 分組的結果
                 controller_groups = {}
@@ -471,7 +477,8 @@ def start_event_loop():
 event_loop_thread = threading.Thread(target=start_event_loop, daemon=True)
 event_loop_thread.start()
 # 創建 GPIO 監控器實例
-monitor = GPIOMonitor([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],db,unsyncdb)
+monitor = GPIOMonitor([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+#monitor = GPIOMonitor([2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],db,unsyncdb)
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await monitor.register(websocket)
@@ -483,8 +490,13 @@ observer.join
 @app.get("/")
 async def get_current_states():
     return monitor.get_all_states()
-
+db_path = "secure_data/encrypted_db.json"
+key_path = "secure_data/db.key"
+# 初始化加密資料庫
+db = tinycon.EncryptedTinyDB(db_path, key)
 if __name__ == "__main__":
+    # 設置資料庫監控
+    observer = tinycon.setup_db_watchdog(db, db_path)
     try:
         print("Starting GPIO monitor server...")
         uvicorn.run(app, host="0.0.0.0", port=8000)
