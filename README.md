@@ -18,4 +18,4 @@ ControllerInput所會用到的是Input點位的偵測，目前是測試用版本
 3.db_connect
 4.mysql_config
 5.permition
-我後續會把python 套件會寫入到requirmentes.txt裡面，在執行程式前可以先進行pip install -r requirements.txt
+python 套件已經寫入到requirmentes.txt裡面，在執行程式前可以先進行pip install -r requirements.txt
