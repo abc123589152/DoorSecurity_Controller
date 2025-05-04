@@ -24,7 +24,7 @@ app = FastAPI()
 apiconnect = httpx.Client(timeout=2)
 # MySQL 連接配置
 mysql_config = {
-    'host': '172.16.1.221',      # 修改為你的 MySQL 主機
+    'host': '172.16.1.198',      # 修改為你的 MySQL 主機
     'user': 'root',       # 修改為你的 MySQL 用戶名
     'password': '1qaz@WSX',   # 修改為你的 MySQL 密碼
     'port':"13306",
