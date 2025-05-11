@@ -1,0 +1,6 @@
+services:
+    kafkatinydbsync:
+        image: kafkatinydbsync:1.0
+        volumes:
+              - ../tinydb_encrpy:/apps/tinydb_encrpy
+              - ../secure_data:/apps/secure_data

@@ -3,16 +3,10 @@ from tinydb.storages import MemoryStorage
 import mysql.connector
 import json
 import os
-from pydantic import BaseModel
-from typing import List, Optional
 from datetime import datetime
 from cryptography.fernet import Fernet
 from cryptography.fernet import InvalidToken
 from tinydb.queries import Query
-import threading
-import time
-from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler
 import subprocess,re
 # 全局字典，用於追踪每個門鎖的計時器
 door_timers = {}
@@ -36,7 +30,7 @@ def get_eth0_ip(interface):
         return None
 raspberry_pi_ip = get_eth0_ip("wlan0")
 # 創建一個檔案系統事件處理類
-class TinyDBFileHandler(FileSystemEventHandler):
+class TinyDBFileHandler():
     def __init__(self, db_instance, db_path):
         self.db = db_instance
         self.db_path = db_path
@@ -291,54 +285,9 @@ def check_str_exists(word_string, word_code):
     # 添加逗號使檢查更精確
     return f",{word_code}," in f",{word_string},"
 
-def sync_to_tinydb(db):
-    """將 MySQL 數據同步到 TinyDB"""
-    try:
-        # 清空並重新創建表格
-        #db.drop_tables()
-        
-        # 獲取並同步每個表
-        tables = {
-            'doorsetting': db.table('doorsetting'),
-            'doorgroup': db.table('doorgroup'),
-            'employ': db.table('employ'),
-            'controllerInput':db.table('controllerInput'),
-            'controllerOutput':db.table('controllerOutput'),
-            'door_status':db.table('door_status'),
-            'eventAction':db.table('eventAction')
-        }
-        
-        for table_name, tinydb_table in tables.items():
-            # 獲取 MySQL 資料
-            mysql_data = fetch_mysql_data(table_name)
-            if mysql_data:
-                # 清空現有 TinyDB 表格數據
-                #tinydb_table.truncate()
-                # 插入新數據
-                tinydb_table.insert_multiple(mysql_data)
-                print(f"表格 {table_name} 同步成功，共 {len(mysql_data)} 筆記錄")
-            else:
-                print(f"表格 {table_name} 無資料或同步失敗")
-        db._save_db()
-        return True
-    except Exception as e:
-        print(f"同步到 TinyDB 時發生錯誤: {str(e)}")
-        return False
-
 db_path = "../secure_data/encrypted_db.json"
 key_path = "../secure_data/db.key"
 # 獲取或生成密鑰
 key = get_encryption_key(key_path)
 # 初始化加密資料庫
 db = EncryptedTinyDB(db_path, key)
-
-def setup_db_watchdog(db_instance, db_path):
-    """設置資料庫檔案監控"""
-    event_handler = TinyDBFileHandler(db_instance, db_path)
-    observer = Observer()
-    observer.schedule(event_handler, path=os.path.dirname(db_path), recursive=False)
-    observer.start()
-    print(f"已啟動對 {db_path} 的監控")
-    
-    # 返回觀察者以便後續可能需要的停止操作
-    return observer

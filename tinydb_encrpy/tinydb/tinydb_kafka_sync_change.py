@@ -3,14 +3,20 @@ from kafka import KafkaConsumer
 import json
 import threading
 import time
-from dbconnect_new import dbConnect_new
-
+import os,sys
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from db_connect.dbconnect_new import dbConnect_new
+import tinydb_encrpy.tinydb_sync_no_api as tinycon
+#引入本地資料庫，並且用key進行解密
+db_path = "secure_data/encrypted_db.json"
+key_path = "secure_data/db.key"
+key = tinycon.get_encryption_key(key_path)
 class KafkaTinyDBSync:
-    def __init__(self, topics, bootstrap_servers=['192.168.110.131:9092']):
-        # TinyDB 初始化
-        self.db = TinyDB('door_control_system.json')
+    def __init__(self, topics, bootstrap_servers=['172.16.1.66:9092']):
+        # TinyDB 初始化(舊的)
+        #self.db = TinyDB('door_control_system.json')
         self.Query = Query()
-        
+        self.db = tinycon.EncryptedTinyDB(db_path,key)
         # 要監聽的主題
         self.topics = topics
         
@@ -229,7 +235,12 @@ if __name__ == "__main__":
     # 要監聽的 Kafka 主題
     topics = [
         'mysql_master.DoorSecurity.doorsetting',
-        'mysql_master.DoorSecurity.eventAction'
+        'mysql_master.DoorSecurity.eventAction',
+        'mysql_master.DoorSecurity.controllerInput',
+        'mysql_master.DoorSecurity.controllerOutput',
+        'mysql_master.DoorSecurity.door_status',
+        'mysql_master.DoorSecurity.doorgroup',
+        'mysql_master.DoorSecurity.employ'
     ]
     
     # 創建並啟動同步服務
