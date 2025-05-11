@@ -13,6 +13,7 @@ from watchdog.events import FileSystemEventHandler
 import socket
 from dotenv import load_dotenv
 import sys,os,subprocess,re
+import module.drycontact as drycontact
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from db_connect.dbconnect_new import dbConnect_new
 import tinydb_encrpy.tinydb_sync_no_api as tinycon
@@ -105,7 +106,7 @@ class GPIOMonitor(FileSystemEventHandler):
         self.controllerOutput_table = self.db.table("controllerOutput")
         self.door_status_table = self.db.table("door_status")
         self.query_table = Query()
-
+        self.drycontact = drycontact.drycontact(self.eventAction_table,self.controllerOutput_table,self.query_table)
 
         # 初始化 GPIO，使用 Button，
         for pin in pin_numbers:
@@ -270,6 +271,7 @@ class GPIOMonitor(FileSystemEventHandler):
             if is_pressed:
                 print(f"Input{pin} 乾接點關閉")
             else:
+                self.drycontact.drycontact_open(pin)
                 print(f"Input{pin} 乾接點打開")
         
         # 將廣播任務提交給事件循環並且將目前門的狀態藉由broadcast_update來去發送到WebSocket Client前端網頁

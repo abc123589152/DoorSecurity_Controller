@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 import subprocess
 import re
 import sys,os
+import module.drycontact
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from db_connect.dbconnect_new import dbConnect_new
 import tinydb_encrpy.tinydb_sync
@@ -86,6 +87,7 @@ class GPIOMonitor(FileSystemEventHandler):
         self.door_threads = {}
         self.http_client = httpx.Client(timeout=2.0)
         self.stop_event = threading.Event()
+        self.drycontact = module.drycontact.drycontact(tinydb_encrpy.tinydb_sync)
         # 初始化 GPIO，使用 Button，
         for pin in pin_numbers:
             button = Button(pin, pull_up=True,bounce_time=0.1)
@@ -247,7 +249,7 @@ class GPIOMonitor(FileSystemEventHandler):
                 'state': "閉合(Close)" if is_pressed else "開路(Open)",
                 'value': is_pressed
             }
-            # 打印日誌
+            #如果不是一般開門點位就會識別出是乾接點
             if is_pressed:
                 print(f"Input{pin} 乾接點關閉")
             else:
