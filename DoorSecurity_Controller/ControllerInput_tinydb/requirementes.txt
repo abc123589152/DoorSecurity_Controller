@@ -1,0 +1,9 @@
+tinydb==4.8.2
+watchdog==6.0.0
+gpiozero==2.0.1
+httpx==0.28.1
+fastapi==0.115.8
+uvicorn==0.34.0
+mysql-connector-python==9.2.0
+cryptography==44.0.2
+lgpio==0.2.2.0

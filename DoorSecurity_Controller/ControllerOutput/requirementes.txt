@@ -1,0 +1,9 @@
+fastapi==0.115.8
+gpiozero==2.0.1
+tinydb==4.8.2
+pydantic==2.10.6
+starlette==0.45.3
+cryptography==44.0.2
+mysql-connector-python==9.2.0
+lgpio==0.2.2.0
+uvicorn==0.34.0

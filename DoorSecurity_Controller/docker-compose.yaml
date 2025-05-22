@@ -1,0 +1,78 @@
+services:
+  testclient:
+      image: ubuntutest:1.0
+      restart: unless-stopped
+      networks:
+          - doorsecurity_controller_network
+  kafkatinydbsync:
+      image: kafkatinydbsync:1.0
+      volumes:
+            - ./tinydb_encrypt/tinydb_encrypt:/apps/tinydb_encrypt
+            - ./secure_data:/apps/secure_data
+            - ./raspberrypi_ipaddress.config:/apps/raspberrypi_ipaddress.config
+            - /etc/timezone:/etc/timezone:ro
+            - /etc/localtime:/etc/localtime:ro
+      restart: unless-stopped
+      networks: 
+          - doorsecurity_controller_network
+  controller-gpio-input-base:
+      privileged: true  # Required for GPIO access
+      devices:
+        - "/dev/gpiomem:/dev/gpiomem"  # Map GPIO memory device
+        - "/dev/mem:/dev/mem"  # Map memory device
+      image: controller_gpio_input_base:1.0
+      ports:
+          - 8000:8000
+      volumes:
+        - ./raspberrypi_ipaddress.config:/controller_input/raspberrypi_ipaddress.config  # Mount local code >
+        - ./permition:/controller_input/permition
+        - ./mysql_config:/controller_input/mysql_config
+        - ./db_connect:/controller_input/db_connect
+        - ./secure_data:/controller_input/secure_data
+        - ./tinydb_encrypt:/controller_input/tinydb_encrypt
+        - /etc/group:/etc/group:ro
+        - /etc/passwd:/etc/passwd:ro
+        - /sys/class/gpio:/sys/class/gpio
+        - /sys/devices:/sys/devices
+        - /dev:/dev
+        - /etc/timezone:/etc/timezone:ro
+        - /etc/localtime:/etc/localtime:ro
+      tty: true
+      stdin_open: true
+      environment:
+        - GPIOZERO_PIN_FACTORY=lgpio  # Configure gpiozero to use native GPIO
+      restart: unless-stopped
+      networks: 
+          - doorsecurity_controller_network
+  controller-gpio-output-base:
+      privileged: true  # Required for GPIO access
+      devices:
+        - "/dev/gpiomem:/dev/gpiomem"  # Map GPIO memory device
+        - "/dev/mem:/dev/mem"  # Map memory device
+      image: controller_gpio_output_base:2.0
+      ports:
+          - 5020:5020
+      volumes:
+        - ./raspberrypi_ipaddress.config:/controller_output/raspberrypi_ipaddress.config  # Mount local code >
+        - ./permition:/controller_output/permition
+        - ./mysql_config:/controller_output/mysql_config
+        - ./db_connect:/controller_output/db_connect
+        - ./secure_data:/controller_output/secure_data
+        - ./tinydb_encrypt:/controller_output/tinydb_encrypt
+        - /etc/group:/etc/group:ro
+        - /etc/passwd:/etc/passwd:ro
+        - /sys/class/gpio:/sys/class/gpio
+        - /sys/devices:/sys/devices
+        - /dev:/dev
+        - /etc/timezone:/etc/timezone:ro
+        - /etc/localtime:/etc/localtime:ro
+      tty: true
+      stdin_open: true
+      environment:
+        - GPIOZERO_PIN_FACTORY=lgpio  # Configure gpiozero to use native GPIO
+      restart: unless-stopped
+      networks: 
+          - doorsecurity_controller_network
+networks:
+    doorsecurity_controller_network:
+      driver: bridge

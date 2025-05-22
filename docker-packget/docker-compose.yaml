@@ -1,0 +1,15 @@
+services:
+    apiserver:
+        image: ubuntutest:1.0
+        command: "python3 app.py"
+        restart: unless-stopped
+        networks:
+             - test
+    client:
+        image: ubuntutest:1.0
+        restart: unless-stopped
+        networks:
+              - test
+networks:
+    test:
+      driver: bridge

@@ -1,0 +1,13 @@
+[Unit]
+Description=Monitor eth0 IP Address Changes
+After=network.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/ip_monitor
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
