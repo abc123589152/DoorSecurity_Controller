@@ -2,7 +2,7 @@
   "name": "mysql-connector",
   "config": {
     "connector.class": "io.debezium.connector.mysql.MySqlConnector",
-    "database.hostname": "172.16.1.181",
+    "database.hostname": "172.16.1.186",
     "database.port": "13306",
     "database.user": "root",
     "database.password": "1qaz@WSX",
@@ -10,7 +10,7 @@
     "topic.prefix": "mysql_master",
     "database.include.list": "DoorSecurity",
     "table.include.list": "DoorSecurity.doorsetting,DoorSecurity.doorgroup,DoorSecurity.employ,DoorSecurity.controllerInput,DoorSecurity.controllerOutput,DoorSecurity.door_status,DoorSecurity.eventAction",
-    "schema.history.internal.kafka.bootstrap.servers": "172.16.1.66:9092",
+    "schema.history.internal.kafka.bootstrap.servers": "kafka:9092",
     "schema.history.internal.kafka.topic": "schema-changes.DoorSecurity",
     "schema.history.internal": "io.debezium.storage.kafka.history.KafkaSchemaHistory",
     "include.schema.changes": "true",

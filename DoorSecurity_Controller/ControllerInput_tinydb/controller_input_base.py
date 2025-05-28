@@ -13,14 +13,15 @@ import socket
 import sys,os,subprocess,re
 from tinydb import Query
 import module.drycontact as drycontact
+from forceopen import forceopenclass
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from db_connect.dbconnect_new import dbConnect_new
 import tinydb_encrypt.tinydb_control_function as tinycon
 app = FastAPI()
 db_path = "/mnt/secure_data/encrypted_db.json"
 key_path = "/mnt/secure_data/db.key"
-
 wiegand_halt_open_check = {}
+wiegand_force_open_check={}
 def get_eth0_ip(interface):
     try:
         output = subprocess.check_output("ip addr show "+interface, shell=True, text=True)
@@ -32,14 +33,19 @@ def get_eth0_ip(interface):
     except subprocess.CalledProcessError:
         return None
 def read_interface_ip(interface):
-    with open(f"/mnt/secure_data/{interface}.conf","r") as readip:
+    with open(f"/mnt/secure_data/{interface}_ip.txt","r") as readip:
         return readip.read().strip()
 def read_mysql_ip():
-    with open(f"../mysql_config/mysql_ip.conf","r") as readmysqip:
+    with open(f"./controller_input/mysql_config/mysql_ip.conf","r") as readmysqip:
         return readmysqip.read().strip()
 #raspberry_pi_ip = get_eth0_ip("wlan0")
-with open("/mnt/secure_data/wlan0.conf","w") as raspberryip:
-     raspberryip.write(get_eth0_ip("wlan0"))
+time.sleep(5)
+with open("/opt/network_adapter.conf","r") as readnetworkadaptertype:
+    networktype = readnetworkadaptertype.read().strip()
+    if (networktype == "wlan0"):
+        raspberryip = read_interface_ip("wlan0")
+    else:
+        raspberryip = read_interface_ip("eth0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -122,6 +128,7 @@ class GPIOMonitor(FileSystemEventHandler):
         self.previous_states = {}
         self.door_sensor_dict = {}
         self.door_threads = {}
+        self.door_release_button_threads={}
         while True:
             if os.path.exists("/mnt/secure_data/checkSync.conf"):
                 with open("/mnt/secure_data/checkSync.conf","r") as readchecksync:
@@ -166,7 +173,7 @@ class GPIOMonitor(FileSystemEventHandler):
         user = Query()
         for wiegand in wiegand_list:
             with open(f"/mnt/secure_data/wiegand_config/{wiegand}.conf","w") as wiegand_write:
-                get_wiegand_doorname = doorsetting_table.get((user.wiegand == wiegand) & (user.control == read_interface_ip("wlan0")))
+                get_wiegand_doorname = doorsetting_table.get((user.wiegand == wiegand) & (user.control == raspberryip))
                 if get_wiegand_doorname!=None:
                     wiegand_write.write(get_wiegand_doorname['door'])
     #初始化建立讀卡機放入門號用來辨別門的資訊
@@ -209,78 +216,25 @@ class GPIOMonitor(FileSystemEventHandler):
         self.previous_states[pin] = is_pressed
         # 使用一個單獨的線程來處理狀態變化邏輯，避免阻塞回調
         threading.Thread(target=self.monitor_gpio, args=(pin, is_pressed), daemon=True).start()
-    def process_state_change(self, pin, is_pressed):
-        """在單獨的線程中處理狀態變化邏輯"""
-        # 從緩存中獲取門的信息
-        door_info = self.door_settings.get(pin)
-        wiegand_halt_open_check[pin] = False
-        # 準備狀態消息
-        if door_info:
-            # 門狀態處理
-            state_status = 'closed' if is_pressed else 'open'
-            door_name = door_info['door']
-            #檢查是否還有觸發開門過久，在開門的時候檢測
-            # 檢查強迫開門
-            if state_status == "open":
-                with open("./permition/checkwiegand1permition.conf", "r") as readpermition:
-                    if readpermition.read().strip() == "0":
-                        state_status = "ForceOpen"
-                    else:
-                        # 啟動門開啟計時器，如果之前有線程正在運行，先停止它
-                        if door_name in self.door_threads and self.door_threads[door_name].is_alive():
-                            # 不能直接停止線程，但我們可以設置一個標誌來讓它自己退出
-                            pass
-                        
-                        # 創建新的開門計時線程
-                        self.door_threads[door_name] = threading.Thread(
-                            target=self.limittime, 
-                            args=(int(door_info.get('openTimeLimit', 30)), pin, door_name,door_info),
-                            daemon=True
-                        )
-                        self.door_threads[door_name].start()
-            print(wiegand_halt_open_check[pin])
-            if(wiegand_halt_open_check[pin]):
-                if (is_pressed):
-                    states = "閉合(Close)"
-                    wiegand_halt_open_check[pin] = False
-                else:
-                    states = "開路(Open)開門過久"
-                state_message = {
-                    'door_status_id': door_info.get('door_status', {}).get('id', 0),
-                    'pin': pin,
-                    'state': states,
-                    'states': "HaltOpen",
-                    'value': is_pressed
-                }
-            else:
-                state_message = {
-                    'door_status_id': door_info.get('door_status', {}).get('id', 0),
-                    'pin': pin,
-                    'state': "閉合(Close)" if is_pressed else "開路(Open)",
-                    'states': state_status,
-                    'value': is_pressed
-                }
-            
-            # 打印日誌
-            if is_pressed:
-                print(f"門號:{door_name} 關閉")
-            else:
-                print(f"門號:{door_name} {state_status}")
-        else:
-            # 普通GPIO處理
-            state_message = {
-                'pin': pin,
-                'state': "閉合(Close)" if is_pressed else "開路(Open)",
-                'value': is_pressed
-            }
-            # 打印日誌
-            if is_pressed:
-                print(f"Input{pin} 乾接點關閉")
-            else:
-                print(f"Input{pin} 乾接點打開")
-        
-        # 將廣播任務提交給事件循環並且將目前門的狀態藉由broadcast_update來去發送到WebSocket Client前端網頁
-        asyncio.run_coroutine_threadsafe(self.broadcast_update(state_message), loop)
+    def monitor_release_button(self,pin,is_pressed):
+        door_release_button = self.door_settings.get(pin)['doorRelease_button']
+        print(f"開門按鈕號碼:{door_release_button}")
+    #先預存門的設定
+    def cache_door_settings(self):
+        """預先緩存門的設置信息"""
+        self.door_settings = {}
+        for pin in self.pins.keys():
+            door_info= self.doorsetting_table.search((self.query_table.door_sensor == str(pin))&(self.query_table.control == raspberryip)) 
+            #door_info = dbConnect_new("SELECT * FROM doorsetting WHERE door_sensor = %s and control = %s", (pin, raspberry_pi_ip))
+            print(door_info)
+            if door_info:
+                wiegand_halt_open_check[pin] = False
+                self.door_settings[pin] = door_info[0]
+                # 預取door_status表中的信息
+                door_status = self.door_status_table.search(self.query_table.doorname == door_info[0]['door'])
+                #door_status = dbConnect_new("SELECT * FROM door_status WHERE doorname = %s", (door_info[0]['door'],))
+                if door_status:
+                    self.door_settings[pin]['door_status'] = door_status[0]
     #在單獨的thread裡面監控每個port的狀態
     def monitor_gpio(self,pin,is_pressed):
         """在單獨的線程中處理狀態變化邏輯"""
@@ -294,17 +248,21 @@ class GPIOMonitor(FileSystemEventHandler):
             door_name = door_info['door']
             #檢查是否還有觸發開門過久，在開門的時候檢測
             wiegand_halt_open_check[pin] = False
+            wiegand_force_open_check[pin] = False
             # 檢查強迫開門
             if state_status == "open":
                 with open(f"/mnt/secure_data/wiegand_config/{door_info['wiegand']}_permition.conf", "r") as readpermition:
                     if readpermition.read().strip() == "0":
+                        #觸發強迫開門警報
                         state_status = "ForceOpen"
+                        wiegand_force_open_check[pin] = True
+                        forceopenfunction = forceopenclass(door_name,self.eventAction_table,self.query_table,asyncio,loop,door_info,dbConnect_new,check_port_async,read_mysql_ip,check_port_with_socket,self.http_client,self.broadcast_update,self.controllerOutput_table)
+                        forceopenfunction.forceopen_eventfunction()
                     else:
                         # 啟動門開啟計時器，如果之前有線程正在運行，先停止它
                         if door_name in self.door_threads and self.door_threads[door_name].is_alive():
                             # 不能直接停止線程，但我們可以設置一個標誌來讓它自己退出
                             pass
-                        
                         # 創建新的開門計時線程
                         self.door_threads[door_name] = threading.Thread(
                             target=self.limittime, 
@@ -312,6 +270,7 @@ class GPIOMonitor(FileSystemEventHandler):
                             daemon=True
                         )
                         self.door_threads[door_name].start()
+            #開門過久的判斷，如果該wiegand是True就觸發
             if(wiegand_halt_open_check[pin]):
                 if (is_pressed):
                     states = "閉合(Close)"
@@ -333,6 +292,27 @@ class GPIOMonitor(FileSystemEventHandler):
                     'states': state_status,
                     'value': is_pressed
                 }
+            if(wiegand_force_open_check[pin]):
+                if (is_pressed):
+                    states = "閉合(Close)"
+                    wiegand_force_open_check[pin] = False
+                else:
+                    states = "開路(Open)強迫開門"
+                state_message = {
+                    'door_status_id': door_info.get('door_status', {}).get('id', 0),
+                    'pin': pin,
+                    'state': states,
+                    'states': "ForceOpen",
+                    'value': is_pressed
+                }
+            else:
+                state_message = {
+                    'door_status_id': door_info.get('door_status', {}).get('id', 0),
+                    'pin': pin,
+                    'state': "閉合(Close)" if is_pressed else "開路(Open)",
+                    'states': state_status,
+                    'value': is_pressed
+                }
             
             # 打印日誌
             if is_pressed:
@@ -340,21 +320,51 @@ class GPIOMonitor(FileSystemEventHandler):
             else:
                 print(f"門號:{door_name} {state_status}")
         else:
-            # 普通GPIO處理
-            state_message = {
-                'pin': pin,
-                'state': "閉合(Close)" if is_pressed else "開路(Open)",
-                'value': is_pressed
-            }
-            # 打印日誌
-            if is_pressed:
-                print(f"Input{pin} 乾接點關閉")
+            #找到開門按鈕pin點位
+            doorRelease_button_info = self.doorsetting_table.search((self.query_table.doorRelease_button == str(pin))&(self.query_table.control == raspberryip))
+            if doorRelease_button_info:
+                # 普通GPIO處理
+                state_message = {
+                    'pin': pin,
+                    'state': "閉合(Close)" if is_pressed else "開路(Open)",
+                    'value': is_pressed
+                }
+                if is_pressed:
+                    with open(f"/mnt/secure_data/wiegand_config/{doorRelease_button_info[0]['wiegand']}_permition.conf", "w") as writepermition:
+                        writepermition.write("1")
+                    print(doorRelease_button_info[0]['wiegand'])
+                    print(f"開門按鈕{pin} 打開")
+                else:
+                    wiegandport = doorRelease_button_info[0]['wiegand']
+                    self.door_release_button_threads[pin] = threading.Thread(target=self.limit_button,args=(wiegandport,),daemon=True)
+                    self.door_release_button_threads[pin].start()
+                    print(f"開門按鈕{pin} 關閉")
+                    
             else:
-                self.drycontact.drycontact_open(pin)
-                print(f"Input{pin} 乾接點打開")
+                # 普通GPIO處理
+                state_message = {
+                    'pin': pin,
+                    'state': "閉合(Close)" if is_pressed else "開路(Open)",
+                    'value': is_pressed
+                }
+                # 打印日誌
+                if is_pressed:
+                    print(f"Input{pin} 乾接點關閉")
+                else:
+                    self.drycontact.drycontact_open(pin)
+                    print(f"Input{pin} 乾接點打開")
         
         # 將廣播任務提交給事件循環並且將目前門的狀態藉由broadcast_update來去發送到WebSocket Client前端網頁
         asyncio.run_coroutine_threadsafe(self.broadcast_update(state_message), loop)
+    def limit_button(self,wiegand):
+        elapsed_time = 0 
+        while elapsed_time <= 5:
+            print(f"開門按鈕權限復歸與門鎖復歸時間計時,目前秒數:{elapsed_time}")
+            elapsed_time+=1
+            time.sleep(1)  # 每 1 秒檢查一次
+        with open(f"/mnt/secure_data/wiegand_config/{wiegand}_permition.conf", "w") as writepermition:
+            writepermition.write("0")
+        print("已經復歸")
     #檢測到TinyDB有異動就重新加載資料庫
     def modified(self):
         print("資料庫有異動進行重新載入動作")
@@ -369,22 +379,7 @@ class GPIOMonitor(FileSystemEventHandler):
         self.drycontact = drycontact.drycontact(self.eventAction_table,self.controllerOutput_table,self.query_table)
         print("已經執行到這裡，開使更新cache door setting")
         self.cache_door_settings()
-    #先預存門的設定
-    def cache_door_settings(self):
-        """預先緩存門的設置信息"""
-        self.door_settings = {}
-        for pin in self.pins.keys():
-            door_info= self.doorsetting_table.search((self.query_table.door_sensor == str(pin))&(self.query_table.control == read_interface_ip("wlan0"))) 
-            #door_info = dbConnect_new("SELECT * FROM doorsetting WHERE door_sensor = %s and control = %s", (pin, raspberry_pi_ip))
-            print(door_info)
-            if door_info:
-                wiegand_halt_open_check[pin] = False
-                self.door_settings[pin] = door_info[0]
-                # 預取door_status表中的信息
-                door_status = self.door_status_table.search(self.query_table.doorname == door_info[0]['door'])
-                #door_status = dbConnect_new("SELECT * FROM door_status WHERE doorname = %s", (door_info[0]['door'],))
-                if door_status:
-                    self.door_settings[pin]['door_status'] = door_status[0]
+    
     def get_current_door_states(self):
         """獲取所有門的當前狀態"""
         current_states = []
@@ -395,7 +390,7 @@ class GPIOMonitor(FileSystemEventHandler):
                 
                 # 檢查是否為強迫開門
                 if state_status == "open":
-                    with open("./permition/checkwiegand1permition.conf", "r") as readpermition:
+                    with open(f"/mnt/secure_data/wiegand_config/{door_info['wiegand']}_permition.conf", "r") as readpermition:
                         if readpermition.read().strip() == "0":
                             state_status = "ForceOpen"
                         else:

@@ -10,9 +10,9 @@ import tinydb_encrypt.tinydb_start_sync as tinydbstart
 db_path = "/mnt/secure_data/encrypted_db.json"
 key_path = "/mnt/secure_data/db.key"
 class KafkaTinyDBSync:
-    def __init__(self, topics,):
-        with open("../mysql_config/mysql_ip.conf","r") as readmysql_conf:    
-            bootstrap_servers=[f'{readmysql_conf.read().strip()}']
+    def __init__(self, topics,bootstrap_servers=['172.16.1.186:9092']):
+        #with open("../mysql_config/mysql_ip.conf","r") as readmysql_conf:    
+        #bootstrap_servers=[f'{readmysql_conf.read().strip()}:9092']
         print("開始同步資料庫")
         #先進行同步資料庫
         tinydbstart.tinydb_init_sync(db_path).init_tinydb()
@@ -72,7 +72,7 @@ class KafkaTinyDBSync:
             
             # 取得對應表
             table = self.db.table(table_name)
-            
+            print(f"operation {operation}")
             # 根據操作類型處理
             if operation == 'c':  # 插入
                 if after_data:
